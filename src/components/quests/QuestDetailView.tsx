@@ -36,7 +36,7 @@ export function QuestDetailView({ quest, isOpen, onClose }: QuestDetailViewProps
   const isFullyCompleted = completedCount === stops.length && stops.length > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in duration-200">
       <div className="w-full max-w-lg rounded-t-2xl sm:rounded-2xl bg-background border shadow-xl flex flex-col max-h-[92vh] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between border-b px-4 py-3 bg-gradient-to-r from-primary/10 via-background to-accent">

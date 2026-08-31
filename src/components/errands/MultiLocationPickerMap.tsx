@@ -59,6 +59,25 @@ function MapController({ center }: { center: [number, number] }) {
   return null;
 }
 
+// Gates map dragging/zoom behind an explicit tap so that a swipe starting on
+// the map (e.g. while scrolling a modal on mobile) passes through to the
+// page's own scroll instead of being captured as a map pan.
+function InteractionGate({ active }: { active: boolean }) {
+  const map = useMap();
+  useEffect(() => {
+    if (active) {
+      map.dragging.enable();
+      map.touchZoom.enable();
+      map.doubleClickZoom.enable();
+    } else {
+      map.dragging.disable();
+      map.touchZoom.disable();
+      map.doubleClickZoom.disable();
+    }
+  }, [active, map]);
+  return null;
+}
+
 export function MultiLocationPickerMap({
   locations,
   activeLocationIndex,
@@ -66,6 +85,7 @@ export function MultiLocationPickerMap({
   onUpdateLocationCoords,
 }: MultiLocationPickerMapProps) {
   const [mounted, setMounted] = useState(false);
+  const [mapActive, setMapActive] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -112,6 +132,7 @@ export function MultiLocationPickerMap({
             onUpdateLocationCoords={onUpdateLocationCoords}
           />
           <MapController center={center} />
+          <InteractionGate active={mapActive} />
 
           {/* Render all location markers and radius circles */}
           {locations.map((loc, idx) => {
@@ -144,6 +165,17 @@ export function MultiLocationPickerMap({
             );
           })}
         </MapContainer>
+
+        {!mapActive && (
+          <div
+            onClick={() => setMapActive(true)}
+            className="absolute inset-0 z-[450] flex items-center justify-center bg-background/10 active:bg-background/20 cursor-pointer"
+          >
+            <span className="rounded-full bg-background/95 px-3 py-1.5 text-[11px] font-semibold text-foreground shadow-md border backdrop-blur">
+              Tap map to move pin
+            </span>
+          </div>
+        )}
 
         <div className="absolute bottom-2 left-2 z-[400] rounded-lg bg-background/90 px-2 py-1 text-[11px] font-medium text-foreground shadow backdrop-blur border flex items-center gap-1.5">
           <span className="flex h-2 w-2 rounded-full bg-primary" />
