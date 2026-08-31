@@ -6,11 +6,11 @@ import { X, CheckCircle2, Lock, MapPin, Navigation, Sparkles, Trophy, ArrowRight
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Quest, QuestStop } from '@/types/quest';
+import { Quest, QuestStop, QuestStopLocation } from '@/types/quest';
 import { DEFAULT_MAP_CENTER } from '@/lib/constants/map';
 
-const LocationPickerMap = dynamic(
-  () => import('@/components/errands/LocationPickerMap').then((mod) => mod.LocationPickerMap),
+const MultiLocationPickerMap = dynamic(
+  () => import('@/components/errands/MultiLocationPickerMap').then((mod) => mod.MultiLocationPickerMap),
   {
     ssr: false,
     loading: () => (
@@ -20,6 +20,12 @@ const LocationPickerMap = dynamic(
     ),
   }
 );
+
+function stopLocations(stop: QuestStop): QuestStopLocation[] {
+  return stop.locations && stop.locations.length > 0
+    ? stop.locations
+    : [{ label: null, lat: stop.lat, lng: stop.lng, radius_m: stop.radius_m }];
+}
 
 interface QuestDetailViewProps {
   quest: Quest;
@@ -156,22 +162,31 @@ export function QuestDetailView({ quest, isOpen, onClose }: QuestDetailViewProps
                             <p className="text-xs text-muted-foreground">{stop.note}</p>
                           )}
 
-                          <div className="flex items-center gap-2 text-[11px] text-muted-foreground pt-0.5">
-                            <span className="flex items-center gap-1 font-semibold text-primary">
-                              <MapPin className="h-3 w-3" />
-                              {stop.lat.toFixed(4)}, {stop.lng.toFixed(4)}
-                            </span>
-                            <span>• Radius: {stop.radius_m}m</span>
+                          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                            {stopLocations(stop).map((loc, locIdx) => (
+                              <span
+                                key={locIdx}
+                                className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground"
+                              >
+                                <MapPin className="h-2.5 w-2.5 text-primary" />
+                                {loc.label || `Pin #${locIdx + 1}`} • {loc.radius_m}m
+                              </span>
+                            ))}
                           </div>
+                          {stopLocations(stop).length > 1 && (
+                            <p className="text-[10px] text-muted-foreground italic">
+                              Reaching any one of these locations completes this stop.
+                            </p>
+                          )}
 
-                          {/* Map view for CURRENT stop */}
+                          {/* Map view for CURRENT stop, showing all its target pins */}
                           {isCurrent && (
                             <div className="pt-2">
-                              <LocationPickerMap
-                                lat={stop.lat}
-                                lng={stop.lng}
-                                radius_m={stop.radius_m}
-                                onChangeLocation={() => {}}
+                              <MultiLocationPickerMap
+                                locations={stopLocations(stop)}
+                                activeLocationIndex={0}
+                                onSelectLocationIndex={() => {}}
+                                onUpdateLocationCoords={() => {}}
                               />
                             </div>
                           )}

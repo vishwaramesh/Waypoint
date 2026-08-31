@@ -2,15 +2,15 @@
 
 import React, { useState } from 'react';
 import dynamic from 'next/dynamic';
-import { X, MapPin, Loader2, Plus, ArrowUp, ArrowDown, Trash2, AlertCircle, Compass } from 'lucide-react';
+import { X, MapPin, Loader2, Plus, ArrowUp, ArrowDown, Trash2, AlertCircle, Compass, Navigation, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { QuestInput, QuestStop } from '@/types/quest';
+import { QuestInput } from '@/types/quest';
 import { DEFAULT_MAP_CENTER } from '@/lib/constants/map';
 
-const LocationPickerMap = dynamic(
-  () => import('@/components/errands/LocationPickerMap').then((mod) => mod.LocationPickerMap),
+const MultiLocationPickerMap = dynamic(
+  () => import('@/components/errands/MultiLocationPickerMap').then((mod) => mod.MultiLocationPickerMap),
   {
     ssr: false,
     loading: () => (
@@ -21,6 +21,20 @@ const LocationPickerMap = dynamic(
   }
 );
 
+interface StopLocationDraft {
+  label?: string | null;
+  lat: number;
+  lng: number;
+  radius_m: number;
+}
+
+interface StopDraft {
+  order_index: number;
+  title: string;
+  note?: string | null;
+  locations: StopLocationDraft[];
+}
+
 interface QuestModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -30,44 +44,54 @@ interface QuestModalProps {
 export function QuestModal({ isOpen, onClose, onSubmit }: QuestModalProps) {
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
-  const [stops, setStops] = useState<Omit<QuestStop, 'id' | 'quest_id' | 'is_done' | 'created_at'>[]>([
+  const [stops, setStops] = useState<StopDraft[]>([
     {
       order_index: 0,
       title: 'Stop 1 Checkpoint',
       note: '',
-      lat: DEFAULT_MAP_CENTER.lat,
-      lng: DEFAULT_MAP_CENTER.lng,
-      radius_m: 100,
+      locations: [{ label: '', lat: DEFAULT_MAP_CENTER.lat, lng: DEFAULT_MAP_CENTER.lng, radius_m: 100 }],
     },
     {
       order_index: 1,
       title: 'Stop 2 Checkpoint',
       note: '',
-      lat: DEFAULT_MAP_CENTER.lat + 0.002,
-      lng: DEFAULT_MAP_CENTER.lng + 0.002,
-      radius_m: 100,
+      locations: [
+        { label: '', lat: DEFAULT_MAP_CENTER.lat + 0.002, lng: DEFAULT_MAP_CENTER.lng + 0.002, radius_m: 100 },
+      ],
     },
   ]);
 
   const [activeStopIndex, setActiveStopIndex] = useState(0);
+  const [activeLocationIndex, setActiveLocationIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   if (!isOpen) return null;
 
+  const selectStop = (idx: number) => {
+    setActiveStopIndex(idx);
+    setActiveLocationIndex(0);
+  };
+
   const handleAddStop = () => {
     const lastStop = stops[stops.length - 1];
+    const lastLoc = lastStop?.locations[0];
     const offset = (stops.length + 1) * 0.002;
-    const newStop = {
+    const newStop: StopDraft = {
       order_index: stops.length,
       title: `Stop ${stops.length + 1} Checkpoint`,
       note: '',
-      lat: lastStop ? lastStop.lat + offset : DEFAULT_MAP_CENTER.lat + offset,
-      lng: lastStop ? lastStop.lng + offset : DEFAULT_MAP_CENTER.lng + offset,
-      radius_m: 100,
+      locations: [
+        {
+          label: '',
+          lat: lastLoc ? lastLoc.lat + offset : DEFAULT_MAP_CENTER.lat + offset,
+          lng: lastLoc ? lastLoc.lng + offset : DEFAULT_MAP_CENTER.lng + offset,
+          radius_m: 100,
+        },
+      ],
     };
     setStops((prev) => [...prev, newStop]);
-    setActiveStopIndex(stops.length);
+    selectStop(stops.length);
   };
 
   const handleRemoveStop = (idx: number) => {
@@ -82,7 +106,7 @@ export function QuestModal({ isOpen, onClose, onSubmit }: QuestModalProps) {
     }));
     setStops(updated);
     if (activeStopIndex >= updated.length) {
-      setActiveStopIndex(updated.length - 1);
+      selectStop(updated.length - 1);
     }
   };
 
@@ -97,13 +121,86 @@ export function QuestModal({ isOpen, onClose, onSubmit }: QuestModalProps) {
 
     const reindexed = updated.map((s, i) => ({ ...s, order_index: i }));
     setStops(reindexed);
-    setActiveStopIndex(targetIdx);
+    selectStop(targetIdx);
   };
 
-  const handleUpdateStop = (idx: number, field: string, value: any) => {
+  const handleUpdateStop = (idx: number, field: 'title' | 'note', value: any) => {
+    setStops((prev) => prev.map((s, i) => (i === idx ? { ...s, [field]: value } : s)));
+  };
+
+  // --- Location pins within the currently active stop ---
+
+  const activeStop = stops[activeStopIndex] || stops[0];
+  const activeStopLocations = activeStop?.locations || [];
+
+  const handleAddLocationToActiveStop = () => {
+    const active = activeStopLocations[activeLocationIndex] || activeStopLocations[0];
+    const offset = (activeStopLocations.length + 1) * 0.0015;
+    const newLoc: StopLocationDraft = {
+      label: '',
+      lat: active ? active.lat + offset : DEFAULT_MAP_CENTER.lat + offset,
+      lng: active ? active.lng + offset : DEFAULT_MAP_CENTER.lng + offset,
+      radius_m: 100,
+    };
     setStops((prev) =>
-      prev.map((s, i) => (i === idx ? { ...s, [field]: value } : s))
+      prev.map((s, i) => (i === activeStopIndex ? { ...s, locations: [...s.locations, newLoc] } : s))
     );
+    setActiveLocationIndex(activeStopLocations.length);
+  };
+
+  const handleRemoveLocationFromActiveStop = (locIdx: number) => {
+    if (activeStopLocations.length <= 1) {
+      setError('Each stop needs at least one target location.');
+      return;
+    }
+    setError('');
+    setStops((prev) =>
+      prev.map((s, i) => {
+        if (i !== activeStopIndex) return s;
+        const updatedLocs = s.locations.filter((_, idx) => idx !== locIdx);
+        return { ...s, locations: updatedLocs };
+      })
+    );
+    if (activeLocationIndex >= activeStopLocations.length - 1) {
+      setActiveLocationIndex(Math.max(0, activeStopLocations.length - 2));
+    }
+  };
+
+  const handleUpdateActiveStopLocationCoords = (locIdx: number, lat: number, lng: number) => {
+    setStops((prev) =>
+      prev.map((s, i) => {
+        if (i !== activeStopIndex) return s;
+        return {
+          ...s,
+          locations: s.locations.map((loc, idx) => (idx === locIdx ? { ...loc, lat, lng } : loc)),
+        };
+      })
+    );
+  };
+
+  const handleUpdateActiveStopLocationField = (locIdx: number, field: 'label' | 'radius_m', value: any) => {
+    setStops((prev) =>
+      prev.map((s, i) => {
+        if (i !== activeStopIndex) return s;
+        return {
+          ...s,
+          locations: s.locations.map((loc, idx) => (idx === locIdx ? { ...loc, [field]: value } : loc)),
+        };
+      })
+    );
+  };
+
+  const handleUseCurrentLocationForActivePin = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          handleUpdateActiveStopLocationCoords(activeLocationIndex, pos.coords.latitude, pos.coords.longitude);
+        },
+        (err) => {
+          console.warn('Could not get current location:', err.message);
+        }
+      );
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -123,6 +220,10 @@ export function QuestModal({ isOpen, onClose, onSubmit }: QuestModalProps) {
         setError(`Please provide a title for Stop #${i + 1}.`);
         return;
       }
+      if (!stops[i].locations || stops[i].locations.length === 0) {
+        setError(`Stop #${i + 1} needs at least one target location.`);
+        return;
+      }
     }
 
     setLoading(true);
@@ -132,14 +233,23 @@ export function QuestModal({ isOpen, onClose, onSubmit }: QuestModalProps) {
       await onSubmit({
         title: title.trim(),
         note: note.trim() || null,
-        stops: stops.map((s, idx) => ({
-          order_index: idx,
-          title: s.title.trim(),
-          note: s.note ? s.note.trim() : null,
-          lat: s.lat,
-          lng: s.lng,
-          radius_m: Number(s.radius_m) || 100,
-        })),
+        stops: stops.map((s, idx) => {
+          const primary = s.locations[0];
+          return {
+            order_index: idx,
+            title: s.title.trim(),
+            note: s.note ? s.note.trim() : null,
+            lat: primary.lat,
+            lng: primary.lng,
+            radius_m: Number(primary.radius_m) || 100,
+            locations: s.locations.map((loc) => ({
+              label: loc.label ? loc.label.trim() : null,
+              lat: loc.lat,
+              lng: loc.lng,
+              radius_m: Number(loc.radius_m) || 100,
+            })),
+          };
+        }),
       });
       onClose();
     } catch (err: any) {
@@ -148,8 +258,6 @@ export function QuestModal({ isOpen, onClose, onSubmit }: QuestModalProps) {
       setLoading(false);
     }
   };
-
-  const activeStop = stops[activeStopIndex] || stops[0];
 
   return (
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in duration-200">
@@ -207,29 +315,105 @@ export function QuestModal({ isOpen, onClose, onSubmit }: QuestModalProps) {
             />
           </div>
 
-          {/* Active Stop Map Picker */}
+          {/* Active Stop's Location Pins */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="flex items-center gap-1.5">
                 <MapPin className="h-3.5 w-3.5 text-primary" />
-                Pick Location for Stop #{activeStopIndex + 1}
+                Stop #{activeStopIndex + 1} Locations ({activeStopLocations.length})
               </Label>
-              <span className="text-xs text-muted-foreground font-semibold">
-                {activeStop.lat.toFixed(4)}, {activeStop.lng.toFixed(4)}
-              </span>
+              <button
+                type="button"
+                onClick={handleUseCurrentLocationForActivePin}
+                className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-1"
+              >
+                <Navigation className="h-3 w-3" />
+                Set Pin #{activeLocationIndex + 1} to My GPS
+              </button>
             </div>
 
-            {activeStop && (
-              <LocationPickerMap
-                lat={activeStop.lat}
-                lng={activeStop.lng}
-                radius_m={activeStop.radius_m}
-                onChangeLocation={(newLat, newLng) => {
-                  handleUpdateStop(activeStopIndex, 'lat', newLat);
-                  handleUpdateStop(activeStopIndex, 'lng', newLng);
-                }}
-              />
-            )}
+            <MultiLocationPickerMap
+              locations={activeStopLocations}
+              activeLocationIndex={activeLocationIndex}
+              onSelectLocationIndex={(idx) => setActiveLocationIndex(idx)}
+              onUpdateLocationCoords={handleUpdateActiveStopLocationCoords}
+            />
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleAddLocationToActiveStop}
+              className="w-full h-8 gap-1.5 border-dashed text-xs font-semibold text-primary hover:bg-primary/5"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Add Another Location to Stop #{activeStopIndex + 1}</span>
+            </Button>
+
+            {/* Pins within the active stop - reaching ANY one completes this stop */}
+            <div className="space-y-2 pt-1">
+              {activeStopLocations.map((loc, locIdx) => {
+                const isActivePin = locIdx === activeLocationIndex;
+                return (
+                  <div
+                    key={locIdx}
+                    onClick={() => setActiveLocationIndex(locIdx)}
+                    className={`rounded-lg border p-2.5 space-y-1.5 transition-all cursor-pointer ${
+                      isActivePin
+                        ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+                        : 'border-border bg-card hover:bg-muted/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
+                            isActivePin ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                          }`}
+                        >
+                          {locIdx + 1}
+                        </span>
+                        <Input
+                          placeholder={`Optional Label (e.g. "Print Shop A")`}
+                          value={loc.label || ''}
+                          onChange={(e) => handleUpdateActiveStopLocationField(locIdx, 'label', e.target.value)}
+                          className="h-7 text-xs bg-background"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                      {activeStopLocations.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveLocationFromActiveStop(locIdx);
+                          }}
+                          className="text-muted-foreground hover:text-destructive p-1 rounded-full shrink-0"
+                          title="Remove this location"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-muted-foreground font-medium">Radius</span>
+                        <span className="font-semibold text-primary">{loc.radius_m}m</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={25}
+                        max={1000}
+                        step={25}
+                        value={loc.radius_m}
+                        onChange={(e) => handleUpdateActiveStopLocationField(locIdx, 'radius_m', Number(e.target.value))}
+                        className="w-full h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Stops List */}
@@ -255,7 +439,7 @@ export function QuestModal({ isOpen, onClose, onSubmit }: QuestModalProps) {
               return (
                 <div
                   key={idx}
-                  onClick={() => setActiveStopIndex(idx)}
+                  onClick={() => selectStop(idx)}
                   className={`rounded-xl border p-3 space-y-2.5 transition-all cursor-pointer ${
                     isActive
                       ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
@@ -274,6 +458,12 @@ export function QuestModal({ isOpen, onClose, onSubmit }: QuestModalProps) {
                       <span className="text-xs font-bold text-foreground">
                         Checkpoint #{idx + 1}
                       </span>
+                      {stop.locations.length > 1 && (
+                        <span className="flex items-center gap-1 rounded-full bg-primary/10 text-primary text-[10px] font-semibold px-1.5 py-0.5">
+                          <Layers className="h-2.5 w-2.5" />
+                          {stop.locations.length} pins
+                        </span>
+                      )}
                     </div>
 
                     {/* Order Controls & Delete */}
@@ -328,22 +518,11 @@ export function QuestModal({ isOpen, onClose, onSubmit }: QuestModalProps) {
                     onClick={(e) => e.stopPropagation()}
                   />
 
-                  {/* Radius Slider */}
-                  <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-muted-foreground font-medium">Radius</span>
-                      <span className="font-semibold text-primary">{stop.radius_m}m</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={25}
-                      max={1000}
-                      step={25}
-                      value={stop.radius_m}
-                      onChange={(e) => handleUpdateStop(idx, 'radius_m', Number(e.target.value))}
-                      className="w-full h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
-                    />
-                  </div>
+                  {!isActive && (
+                    <p className="text-[10px] text-muted-foreground italic">
+                      Tap this card to edit its location pin{stop.locations.length > 1 ? 's' : ''} above.
+                    </p>
+                  )}
                 </div>
               );
             })}

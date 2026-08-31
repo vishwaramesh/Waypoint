@@ -26,20 +26,46 @@ export function haversineDistanceMeters(
 
 /**
  * Triggers a native browser notification if permission is granted.
+ *
+ * Mobile Chrome (and most mobile browsers) throw on the plain
+ * `new Notification()` constructor unless there's an active service worker —
+ * they require ServiceWorkerRegistration.showNotification() instead. We try
+ * that path first (registered in ServiceWorkerRegister.tsx / public/sw.js)
+ * and fall back to the plain constructor for browsers that don't need it.
  */
-export function triggerBrowserNotification(title: string, body?: string | null) {
+export async function triggerBrowserNotification(title: string, body?: string | null) {
   if (typeof window === 'undefined' || !('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
 
-  if (Notification.permission === 'granted') {
+  const notificationTitle = `📍 Waypoint Geofence: ${title}`;
+  const options: NotificationOptions = {
+    body: body || 'You have entered the target radius for this errand.',
+    icon: '/icon-192.png',
+    tag: `geofence-${title}`,
+  };
+
+  if ('serviceWorker' in navigator) {
     try {
-      new Notification(`📍 Waypoint Geofence: ${title}`, {
-        body: body || 'You have entered the target radius for this errand.',
-        icon: '/favicon.ico',
-        tag: `geofence-${title}`,
-      });
+      // Guard with a timeout in case the service worker never becomes ready
+      // (e.g. registration failed) so we don't hang and skip the fallback.
+      const registration = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+      ]);
+
+      if (registration) {
+        await registration.showNotification(notificationTitle, options);
+        return;
+      }
     } catch (e) {
-      console.warn('Could not launch native notification:', e);
+      console.warn('Service worker notification failed, falling back:', e);
     }
+  }
+
+  try {
+    new Notification(notificationTitle, options);
+  } catch (e) {
+    console.warn('Could not launch native notification:', e);
   }
 }
 

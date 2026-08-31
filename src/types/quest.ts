@@ -1,3 +1,13 @@
+export interface QuestStopLocation {
+  id?: string;
+  quest_stop_id?: string;
+  label?: string | null;
+  lat: number;
+  lng: number;
+  radius_m: number;
+  created_at?: string;
+}
+
 export interface QuestStop {
   id?: string;
   quest_id?: string;
@@ -9,6 +19,7 @@ export interface QuestStop {
   radius_m: number;
   is_done: boolean;
   created_at?: string;
+  locations?: QuestStopLocation[];
 }
 
 export interface Quest {
@@ -20,8 +31,12 @@ export interface Quest {
   stops?: QuestStop[];
 }
 
+export type QuestStopInput = Omit<QuestStop, 'id' | 'quest_id' | 'is_done' | 'created_at' | 'locations'> & {
+  locations: Omit<QuestStopLocation, 'id' | 'quest_stop_id' | 'created_at'>[];
+};
+
 export type QuestInput = {
   title: string;
   note?: string | null;
-  stops: Omit<QuestStop, 'id' | 'quest_id' | 'is_done' | 'created_at'>[];
+  stops: QuestStopInput[];
 };

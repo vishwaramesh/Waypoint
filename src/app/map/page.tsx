@@ -220,15 +220,28 @@ export default function MapPage() {
 
         if (!currentStop || !currentStop.id) continue;
 
-        const distMeters = haversineDistanceMeters(
-          currentPosition.lat,
-          currentPosition.lng,
-          currentStop.lat,
-          currentStop.lng
-        );
+        // A stop can have multiple alternate target locations (like
+        // multi-location errands) — reaching ANY one of them completes it.
+        const stopLocs = currentStop.locations && currentStop.locations.length > 0
+          ? currentStop.locations
+          : [
+              {
+                lat: currentStop.lat,
+                lng: currentStop.lng,
+                radius_m: currentStop.radius_m,
+                label: null,
+              },
+            ];
 
-        const radius = currentStop.radius_m || 100;
-        const isInside = distMeters <= radius;
+        const isInside = stopLocs.some((loc) => {
+          const distMeters = haversineDistanceMeters(
+            currentPosition.lat,
+            currentPosition.lng,
+            loc.lat,
+            loc.lng
+          );
+          return distMeters <= (loc.radius_m || 100);
+        });
 
         if (isInside && !alertedQuestStopIds.current.has(currentStop.id)) {
           alertedQuestStopIds.current.add(currentStop.id);

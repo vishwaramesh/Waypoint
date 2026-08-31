@@ -5,6 +5,7 @@ import { AppHeader } from '@/components/layout/AppHeader';
 import { BottomTabBar } from '@/components/layout/BottomTabBar';
 import { AuthProvider } from '@/components/auth/AuthProvider';
 import { ToastContainer } from '@/components/ui/toast';
+import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -36,6 +37,9 @@ export default function RootLayout({
     <html lang="en" className="h-full overflow-x-hidden">
       <body className={`${inter.className} flex h-full flex-col bg-background antialiased overflow-x-hidden max-w-full`}>
         <AuthProvider>
+          {/* Registers the service worker geofence notifications rely on for mobile */}
+          <ServiceWorkerRegister />
+
           {/* Top App Bar */}
           <AppHeader />
 
