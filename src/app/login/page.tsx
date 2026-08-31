@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Navigation, Mail, Lock, AlertCircle, ArrowRight, Loader2 } from 'lucide-react';
@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
 import { useAuth } from '@/components/auth/AuthProvider';
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, demoLogin } = useAuth();
@@ -213,5 +213,21 @@ export default function LoginPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function LoginFormFallback() {
+  return (
+    <div className="flex min-h-[80vh] flex-col items-center justify-center py-6 px-2">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginFormFallback />}>
+      <LoginForm />
+    </Suspense>
   );
 }
