@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Circle, Popup, useMapEvents } from 'react-leaflet';
+import React, { useEffect, useState, useRef } from 'react';
+import { MapContainer, TileLayer, Marker, Circle, Popup, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { LocateFixed } from 'lucide-react';
 import { Errand, ErrandLocation } from '@/types/errand';
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from '@/lib/constants/map';
 
@@ -37,6 +38,31 @@ interface LiveGeofenceMapProps {
   onSimulateClick?: (lat: number, lng: number) => void;
 }
 
+// Captures the underlying Leaflet map instance so a plain DOM button outside
+// react-leaflet's tree (the recenter button below) can drive it.
+function MapInstanceCapture({ mapRef }: { mapRef: React.MutableRefObject<L.Map | null> }) {
+  const map = useMap();
+  useEffect(() => {
+    mapRef.current = map;
+  }, [map]);
+  return null;
+}
+
+// Snaps the view onto the user's position the first time a GPS fix arrives,
+// then leaves the user free to pan/zoom without being yanked back on every
+// subsequent update (that's what the manual recenter button is for).
+function FollowUserOnce({ position }: { position: [number, number] | null }) {
+  const map = useMap();
+  const hasCenteredRef = useRef(false);
+  useEffect(() => {
+    if (position && !hasCenteredRef.current) {
+      map.setView(position, DEFAULT_MAP_ZOOM, { animate: true });
+      hasCenteredRef.current = true;
+    }
+  }, [position, map]);
+  return null;
+}
+
 // Map Click Listener for Dev Location Simulation
 function MapClickListener({
   isSimulating,
@@ -64,6 +90,7 @@ export function LiveGeofenceMap({
   onSimulateClick,
 }: LiveGeofenceMapProps) {
   const [mounted, setMounted] = useState(false);
+  const mapInstanceRef = useRef<L.Map | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -102,6 +129,8 @@ export function LiveGeofenceMap({
         />
 
         <MapClickListener isSimulating={isSimulating} onSimulateClick={onSimulateClick} />
+        <MapInstanceCapture mapRef={mapInstanceRef} />
+        <FollowUserOnce position={userLocation ? [userLocation.lat, userLocation.lng] : null} />
 
         {/* Live / Simulated User Location Marker */}
         {userLocation && (
@@ -178,6 +207,21 @@ export function LiveGeofenceMap({
         <div className="absolute top-2 left-2 z-[400] rounded-xl bg-amber-500/90 text-amber-950 px-3 py-1.5 text-xs font-bold shadow-md backdrop-blur border border-amber-400 animate-pulse">
           🧪 Dev Simulation Active: Click anywhere on the map to set user position!
         </div>
+      )}
+
+      {userLocation && (
+        <button
+          type="button"
+          onClick={() =>
+            mapInstanceRef.current?.setView([userLocation.lat, userLocation.lng], DEFAULT_MAP_ZOOM, {
+              animate: true,
+            })
+          }
+          title="Recenter on my location"
+          className="absolute bottom-3 right-3 z-[450] flex h-10 w-10 items-center justify-center rounded-full border bg-background text-primary shadow-md active:scale-95 transition-transform"
+        >
+          <LocateFixed className="h-4 w-4" />
+        </button>
       )}
     </div>
   );

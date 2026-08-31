@@ -53,6 +53,9 @@ export default function MapPage() {
   const [liveLocation, setLiveLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [simulatedLocation, setSimulatedLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
+  const [gpsStatus, setGpsStatus] = useState<'searching' | 'locked' | 'error'>('searching');
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const [, forceClockTick] = useState(0);
 
   const isDevEnvironment = process.env.NODE_ENV === 'development' || true;
 
@@ -102,29 +105,60 @@ export default function MapPage() {
   useEffect(() => {
     requestNotificationPermission();
 
-    if (navigator.geolocation) {
-      const watchId = navigator.geolocation.watchPosition(
-        (pos) => {
-          setLiveLocation({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-          });
-        },
-        () => {
-          setLiveLocation((prev) => prev || DEFAULT_MAP_CENTER);
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0,
-        }
-      );
-
-      return () => {
-        navigator.geolocation.clearWatch(watchId);
-      };
+    if (!navigator.geolocation) {
+      setGpsStatus('error');
+      return;
     }
+
+    const applyPosition = (pos: GeolocationPosition) => {
+      setLiveLocation({
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+      });
+      setGpsStatus('locked');
+      setLastUpdatedAt(Date.now());
+    };
+
+    const handleError = () => {
+      // Keep whatever position we already have rather than snapping back to
+      // the default — a transient GPS error shouldn't look like teleporting.
+      setGpsStatus((prev) => (prev === 'locked' ? prev : 'error'));
+      setLiveLocation((prev) => prev || DEFAULT_MAP_CENTER);
+    };
+
+    // Primary source: continuous updates as the browser reports new fixes.
+    const watchId = navigator.geolocation.watchPosition(applyPosition, handleError, {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 3000,
+    });
+
+    // Fallback: some phones/laptops deliver watchPosition callbacks very
+    // infrequently (or stall) while stationary or indoors, so we also
+    // actively re-request a fresh fix on a timer to keep tracking feeling
+    // live rather than silently going stale.
+    const pollId = setInterval(() => {
+      navigator.geolocation.getCurrentPosition(applyPosition, handleError, {
+        enableHighAccuracy: true,
+        timeout: 8000,
+        maximumAge: 3000,
+      });
+    }, 6000);
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+      clearInterval(pollId);
+    };
   }, []);
+
+  // Ticks once a second purely so the "updated Xs ago" label below stays
+  // live without needing its own extra location-fetching side effects.
+  useEffect(() => {
+    const tick = setInterval(() => forceClockTick((n) => n + 1), 1000);
+    return () => clearInterval(tick);
+  }, []);
+
+  const secondsSinceUpdate = lastUpdatedAt ? Math.max(0, Math.floor((Date.now() - lastUpdatedAt) / 1000)) : null;
 
   useEffect(() => {
     loadData();
@@ -287,6 +321,30 @@ export default function MapPage() {
                   <p className="text-[11px] text-muted-foreground">
                     {activeErrands.length} errand{activeErrands.length !== 1 ? 's' : ''} • {activeQuests.length} quest trail{activeQuests.length !== 1 ? 's' : ''}
                   </p>
+                  <span
+                    className={`mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold ${
+                      gpsStatus === 'locked'
+                        ? 'text-emerald-600'
+                        : gpsStatus === 'error'
+                        ? 'text-destructive'
+                        : 'text-amber-600'
+                    }`}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        gpsStatus === 'locked'
+                          ? 'bg-emerald-500 animate-pulse'
+                          : gpsStatus === 'error'
+                          ? 'bg-destructive'
+                          : 'bg-amber-500 animate-pulse'
+                      }`}
+                    />
+                    {gpsStatus === 'locked'
+                      ? `Live${secondsSinceUpdate !== null ? ` · updated ${secondsSinceUpdate}s ago` : ''}`
+                      : gpsStatus === 'error'
+                      ? 'Location unavailable — check permissions'
+                      : 'Searching for GPS signal…'}
+                  </span>
                 </div>
               </div>
 
