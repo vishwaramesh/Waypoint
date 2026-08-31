@@ -8,7 +8,9 @@ import {
   Car, 
   CheckCircle2, 
   Sparkles,
-  Loader2
+  Layers,
+  Compass,
+  Trophy
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,8 +18,10 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AuthGuard } from '@/components/auth/AuthGuard';
 import { useAuth } from '@/components/auth/AuthProvider';
-import { Errand } from '@/types/errand';
+import { Errand, ErrandLocation } from '@/types/errand';
+import { Quest, QuestStop } from '@/types/quest';
 import { fetchUserErrands, toggleErrandDone } from '@/lib/services/errandsService';
+import { fetchUserQuests, markQuestStopDone } from '@/lib/services/questsService';
 import { 
   haversineDistanceMeters, 
   requestNotificationPermission, 
@@ -25,6 +29,7 @@ import {
 } from '@/lib/utils/geofence';
 import { GeofenceAlertToast } from '@/components/map/GeofenceAlertToast';
 import { showToast } from '@/lib/utils/toast';
+import { DEFAULT_MAP_CENTER } from '@/lib/constants/map';
 
 const LiveGeofenceMap = dynamic(
   () => import('@/components/map/LiveGeofenceMap').then((mod) => mod.LiveGeofenceMap),
@@ -40,10 +45,11 @@ export default function MapPage() {
   const { user } = useAuth();
 
   const [activeErrands, setActiveErrands] = useState<Errand[]>([]);
+  const [activeQuests, setActiveQuests] = useState<Quest[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedErrand, setSelectedErrand] = useState<Errand | null>(null);
 
-  // User position states
+  // Position states
   const [liveLocation, setLiveLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [simulatedLocation, setSimulatedLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
@@ -51,27 +57,43 @@ export default function MapPage() {
   const isDevEnvironment = process.env.NODE_ENV === 'development' || true;
 
   // Active geofence alert toast state
-  const [triggeredAlert, setTriggeredAlert] = useState<{ errand: Errand; distance: number } | null>(null);
+  const [triggeredAlert, setTriggeredAlert] = useState<{
+    errand: Errand;
+    matchedLocation: ErrandLocation;
+    distance: number;
+  } | null>(null);
 
   // Session Alert & Snooze State Maps
   const alertedSessionIds = useRef<Set<string>>(new Set());
+  const alertedQuestStopIds = useRef<Set<string>>(new Set());
   const snoozeTimestamps = useRef<Map<string, number>>(new Map());
 
   const currentPosition = isSimulating && simulatedLocation ? simulatedLocation : liveLocation;
 
-  // Load Active Errands
-  const loadErrands = useCallback(async () => {
+  // Load Active Errands and Active Quests
+  const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      const data = await fetchUserErrands(user.id);
-      const active = data.filter((e) => !e.is_done);
-      setActiveErrands(active);
-      if (active.length > 0 && !selectedErrand) {
-        setSelectedErrand(active[0]);
+      const [errandsData, questsData] = await Promise.all([
+        fetchUserErrands(user.id),
+        fetchUserQuests(user.id),
+      ]);
+
+      const activeE = errandsData.filter((e) => !e.is_done);
+      setActiveErrands(activeE);
+      if (activeE.length > 0 && !selectedErrand) {
+        setSelectedErrand(activeE[0]);
       }
+
+      // Filter quests that still have uncompleted stops
+      const activeQ = questsData.filter((q) => {
+        const stops = q.stops || [];
+        return stops.some((s) => !s.is_done);
+      });
+      setActiveQuests(activeQ);
     } catch (err) {
-      console.error('Failed to load active errands:', err);
+      console.error('Failed to load map geofence data:', err);
     } finally {
       setLoading(false);
     }
@@ -89,7 +111,7 @@ export default function MapPage() {
           });
         },
         () => {
-          setLiveLocation((prev) => prev || { lat: 37.7749, lng: -122.4194 });
+          setLiveLocation((prev) => prev || DEFAULT_MAP_CENTER);
         },
         {
           enableHighAccuracy: true,
@@ -105,35 +127,114 @@ export default function MapPage() {
   }, []);
 
   useEffect(() => {
-    loadErrands();
-  }, [loadErrands]);
+    loadData();
+  }, [loadData]);
 
-  // Geofence Evaluation Engine
+  // Multi-Location & Quest Checkpoint Geofence Evaluation Engine
   useEffect(() => {
-    if (!currentPosition || activeErrands.length === 0) return;
+    if (!currentPosition) return;
 
-    for (const errand of activeErrands) {
-      const distMeters = haversineDistanceMeters(
-        currentPosition.lat,
-        currentPosition.lng,
-        errand.lat,
-        errand.lng
-      );
+    // 1. Evaluate Active Errands
+    if (activeErrands.length > 0) {
+      for (const errand of activeErrands) {
+        const locs = errand.locations && errand.locations.length > 0
+          ? errand.locations
+          : [
+              {
+                lat: errand.lat ?? DEFAULT_MAP_CENTER.lat,
+                lng: errand.lng ?? DEFAULT_MAP_CENTER.lng,
+                radius_m: errand.radius_m ?? 100,
+                label: null,
+              },
+            ];
 
-      const radius = errand.radius_m || 100;
-      const isInside = distMeters <= radius;
+        for (const loc of locs) {
+          const distMeters = haversineDistanceMeters(
+            currentPosition.lat,
+            currentPosition.lng,
+            loc.lat,
+            loc.lng
+          );
 
-      const snoozeUntil = snoozeTimestamps.current.get(errand.id);
-      const isSnoozed = Boolean(snoozeUntil && Date.now() < snoozeUntil);
+          const radius = loc.radius_m || 100;
+          const isInside = distMeters <= radius;
 
-      if (isInside && !isSnoozed && !alertedSessionIds.current.has(errand.id)) {
-        alertedSessionIds.current.add(errand.id);
-        setTriggeredAlert({ errand, distance: distMeters });
-        triggerBrowserNotification(errand.title, errand.note);
-        break;
+          const snoozeUntil = snoozeTimestamps.current.get(errand.id);
+          const isSnoozed = Boolean(snoozeUntil && Date.now() < snoozeUntil);
+
+          if (isInside && !isSnoozed && !alertedSessionIds.current.has(errand.id)) {
+            alertedSessionIds.current.add(errand.id);
+            setTriggeredAlert({ errand, matchedLocation: loc, distance: distMeters });
+
+            const notifTitle = loc.label ? `Near ${loc.label}` : errand.title;
+            const notifBody = loc.label
+              ? `You're near ${loc.label} — pick up ${errand.title}`
+              : errand.note || `You're inside the target geofence for ${errand.title}`;
+
+            triggerBrowserNotification(notifTitle, notifBody);
+            break;
+          }
+        }
       }
     }
-  }, [currentPosition, activeErrands]);
+
+    // 2. Evaluate Active Quests (Current Stop ONLY)
+    if (activeQuests.length > 0) {
+      for (const quest of activeQuests) {
+        const stops = quest.stops ? [...quest.stops].sort((a, b) => a.order_index - b.order_index) : [];
+        const currentStop = stops.find((s) => !s.is_done);
+
+        if (!currentStop || !currentStop.id) continue;
+
+        const distMeters = haversineDistanceMeters(
+          currentPosition.lat,
+          currentPosition.lng,
+          currentStop.lat,
+          currentStop.lng
+        );
+
+        const radius = currentStop.radius_m || 100;
+        const isInside = distMeters <= radius;
+
+        if (isInside && !alertedQuestStopIds.current.has(currentStop.id)) {
+          alertedQuestStopIds.current.add(currentStop.id);
+
+          // Mark current stop done in Supabase immediately
+          markQuestStopDone(currentStop.id, quest.id);
+
+          // Check if there is a next stop
+          const currentIndex = stops.findIndex((s) => s.id === currentStop.id);
+          const hasNextStop = currentIndex >= 0 && currentIndex < stops.length - 1;
+
+          if (hasNextStop) {
+            showToast(
+              'Quest Checkpoint Reached! 🧭',
+              `Reached "${currentStop.title}" in ${quest.title}. Next stop unlocked — open the Quests tab!`,
+              'success'
+            );
+            triggerBrowserNotification(
+              `Quest Checkpoint: ${currentStop.title}`,
+              `Next stop unlocked in ${quest.title}!`
+            );
+          } else {
+            showToast(
+              'Quest Completed! 🎉',
+              `Final checkpoint reached in "${quest.title}"! All stops complete.`,
+              'success'
+            );
+            triggerBrowserNotification(
+              `Quest Complete! 🎉`,
+              `You completed all checkpoints in ${quest.title}!`
+            );
+          }
+
+          // Reload quest state
+          loadData();
+          break;
+        }
+      }
+    }
+  }, [currentPosition, activeErrands, activeQuests, loadData]);
 
   // Handle Toast Action: Mark Done
   const handleMarkDone = async (errandId: string) => {
@@ -165,6 +266,7 @@ export default function MapPage() {
         {triggeredAlert && (
           <GeofenceAlertToast
             errand={triggeredAlert.errand}
+            matchedLocation={triggeredAlert.matchedLocation}
             distanceMeters={triggeredAlert.distance}
             onMarkDone={handleMarkDone}
             onSnooze={handleSnooze}
@@ -183,7 +285,7 @@ export default function MapPage() {
                 <div>
                   <h3 className="text-xs font-bold text-foreground">Live Geofence Monitor</h3>
                   <p className="text-[11px] text-muted-foreground">
-                    {activeErrands.length} active geofenced stop{activeErrands.length !== 1 ? 's' : ''}
+                    {activeErrands.length} errand{activeErrands.length !== 1 ? 's' : ''} • {activeQuests.length} quest trail{activeQuests.length !== 1 ? 's' : ''}
                   </p>
                 </div>
               </div>
@@ -220,30 +322,24 @@ export default function MapPage() {
         {/* Selected / Current Errand Detail Card */}
         {selectedErrand ? (
           <Card className="border-primary/20 shadow-sm">
-            <CardContent className="p-4">
+            <CardContent className="p-4 space-y-2">
               <div className="flex items-start justify-between gap-2">
                 <div className="space-y-1 min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Badge variant="default" className="text-[10px]">
                       Active Target
                     </Badge>
-                    <span className="text-xs text-muted-foreground font-semibold">
-                      Radius: {selectedErrand.radius_m || 100}m
-                    </span>
+                    {selectedErrand.locations && selectedErrand.locations.length > 1 && (
+                      <Badge variant="secondary" className="text-[10px] gap-1 bg-primary/10 text-primary">
+                        <Layers className="h-3 w-3" />
+                        {selectedErrand.locations.length} target pins
+                      </Badge>
+                    )}
                   </div>
                   <h3 className="text-base font-bold text-foreground mt-1 truncate">{selectedErrand.title}</h3>
                   {selectedErrand.note && (
                     <p className="text-xs text-muted-foreground line-clamp-2 break-words">{selectedErrand.note}</p>
                   )}
-                  <p className="text-[11px] text-muted-foreground flex items-center gap-1 pt-1 truncate">
-                    <MapPin className="h-3 w-3 text-primary shrink-0" />
-                    {selectedErrand.lat.toFixed(4)}, {selectedErrand.lng.toFixed(4)}
-                    {currentPosition && (
-                      <span className="font-semibold text-foreground ml-1">
-                        • {Math.round(haversineDistanceMeters(currentPosition.lat, currentPosition.lng, selectedErrand.lat, selectedErrand.lng))}m away
-                      </span>
-                    )}
-                  </p>
                 </div>
 
                 <Button
@@ -255,6 +351,34 @@ export default function MapPage() {
                   <span>Done</span>
                 </Button>
               </div>
+
+              {/* Target Location Pins List */}
+              {selectedErrand.locations && selectedErrand.locations.length > 0 && (
+                <div className="pt-2 border-t space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
+                    Target Locations
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedErrand.locations.map((loc, idx) => {
+                      const dist = currentPosition
+                        ? Math.round(haversineDistanceMeters(currentPosition.lat, currentPosition.lng, loc.lat, loc.lng))
+                        : null;
+
+                      return (
+                        <div key={idx} className="rounded-md border bg-muted/40 px-2 py-1 text-[11px] flex items-center gap-1.5">
+                          <MapPin className="h-3 w-3 text-primary shrink-0" />
+                          <span className="font-semibold text-foreground">
+                            {loc.label || `Pin #${idx + 1}`}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            ({loc.radius_m}m) {dist !== null && `• ${dist}m away`}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         ) : (

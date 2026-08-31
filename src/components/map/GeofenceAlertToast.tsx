@@ -4,10 +4,11 @@ import React from 'react';
 import { MapPin, CheckCircle2, Clock, X, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Errand } from '@/types/errand';
+import { Errand, ErrandLocation } from '@/types/errand';
 
 interface GeofenceAlertToastProps {
   errand: Errand;
+  matchedLocation: ErrandLocation;
   distanceMeters: number;
   onMarkDone: (errandId: string) => void;
   onSnooze: (errandId: string) => void;
@@ -16,11 +17,17 @@ interface GeofenceAlertToastProps {
 
 export function GeofenceAlertToast({
   errand,
+  matchedLocation,
   distanceMeters,
   onMarkDone,
   onSnooze,
   onDismiss,
 }: GeofenceAlertToastProps) {
+  const locationName = matchedLocation.label || errand.title;
+  const bannerMessage = matchedLocation.label
+    ? `You're near ${matchedLocation.label} — ${errand.title}`
+    : `You're near target location for ${errand.title}`;
+
   return (
     <div className="fixed top-16 left-0 right-0 z-50 px-4 flex justify-center animate-in slide-in-from-top duration-300 pointer-events-none">
       <Card className="w-full max-w-md border-amber-500/40 bg-background/95 backdrop-blur shadow-2xl pointer-events-auto border-2">
@@ -36,7 +43,7 @@ export function GeofenceAlertToast({
                   Geofence Target Reached!
                 </span>
                 <span className="text-[11px] text-muted-foreground font-medium">
-                  Inside {errand.radius_m}m radius ({Math.round(distanceMeters)}m away)
+                  Inside {matchedLocation.radius_m}m radius ({Math.round(distanceMeters)}m away)
                 </span>
               </div>
             </div>
@@ -48,11 +55,11 @@ export function GeofenceAlertToast({
             </button>
           </div>
 
-          {/* Errand Title & Note */}
+          {/* Errand & Location Details */}
           <div>
-            <h3 className="text-base font-bold text-foreground leading-snug flex items-center gap-1.5">
+            <h3 className="text-sm font-bold text-foreground leading-snug flex items-center gap-1.5">
               <MapPin className="h-4 w-4 text-primary shrink-0" />
-              {errand.title}
+              {bannerMessage}
             </h3>
             {errand.note && (
               <p className="text-xs text-muted-foreground mt-1 line-clamp-2 pl-5">

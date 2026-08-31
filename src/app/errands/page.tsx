@@ -10,7 +10,8 @@ import {
   Pencil, 
   Trash2, 
   Search, 
-  AlertCircle
+  AlertCircle,
+  Layers
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,8 +30,8 @@ import {
 } from '@/lib/services/errandsService';
 import { ErrandModal } from '@/components/errands/ErrandModal';
 import { showToast } from '@/lib/utils/toast';
+import { DEFAULT_MAP_CENTER } from '@/lib/constants/map';
 
-// Distance calculation helper
 function calculateDistanceMiles(
   lat1: number,
   lon1: number,
@@ -63,10 +64,8 @@ export default function ErrandsPage() {
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // User location for distance rendering
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
-  // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingErrand, setEditingErrand] = useState<Errand | null>(null);
 
@@ -96,13 +95,12 @@ export default function ErrandsPage() {
           });
         },
         () => {
-          setUserLocation({ lat: 37.7749, lng: -122.4194 });
+          setUserLocation(DEFAULT_MAP_CENTER);
         }
       );
     }
   }, [loadErrands]);
 
-  // Handle Add / Edit submit
   const handleSaveErrand = async (input: ErrandInput) => {
     if (!user) return;
 
@@ -117,7 +115,6 @@ export default function ErrandsPage() {
     }
   };
 
-  // Handle Toggle Done
   const handleToggleDone = async (id: string, currentStatus: boolean) => {
     try {
       const updated = await toggleErrandDone(id, !currentStatus);
@@ -133,7 +130,6 @@ export default function ErrandsPage() {
     }
   };
 
-  // Handle Delete
   const handleDelete = async (id: string) => {
     const errandToDelete = errands.find((e) => e.id === id);
     if (!confirm('Are you sure you want to delete this errand?')) return;
@@ -174,7 +170,7 @@ export default function ErrandsPage() {
               <div>
                 <CardTitle className="text-xl font-bold tracking-tight">My Errands</CardTitle>
                 <CardDescription className="text-xs mt-0.5">
-                  Manage tasks and geofenced target stops
+                  Multi-location task target tracking
                 </CardDescription>
               </div>
               <Button
@@ -212,7 +208,7 @@ export default function ErrandsPage() {
           </div>
         )}
 
-        {/* Skeleton Loaders during fetch */}
+        {/* Skeletons during fetch */}
         {loading ? (
           <div className="space-y-3 pt-1">
             <Skeleton className="h-20 w-full rounded-xl" />
@@ -244,18 +240,21 @@ export default function ErrandsPage() {
                 )
               ) : (
                 activeErrands.map((errand) => {
-                  const distanceStr = userLocation
-                    ? calculateDistanceMiles(userLocation.lat, userLocation.lng, errand.lat, errand.lng)
+                  const locs = errand.locations || [];
+                  const primaryLoc = locs[0];
+
+                  const distanceStr = primaryLoc && userLocation
+                    ? calculateDistanceMiles(userLocation.lat, userLocation.lng, primaryLoc.lat, primaryLoc.lng)
                     : null;
 
                   return (
                     <Card
                       key={errand.id}
-                      className="transition-all duration-300 hover:shadow-md border-border animate-in fade-in slide-in-from-top-1"
+                      className="transition-all duration-300 hover:shadow-md border-border animate-in fade-in"
                     >
                       <CardContent className="p-3.5">
                         <div className="flex items-start gap-3">
-                          {/* Toggle Checkbox */}
+                          {/* Checkbox */}
                           <button
                             onClick={() => handleToggleDone(errand.id, errand.is_done)}
                             className="mt-0.5 text-muted-foreground hover:text-emerald-500 transition-colors focus:outline-none shrink-0"
@@ -267,9 +266,18 @@ export default function ErrandsPage() {
                           {/* Content */}
                           <div className="flex-1 min-w-0 space-y-1">
                             <div className="flex items-start justify-between gap-1.5">
-                              <h4 className="text-sm font-semibold text-foreground leading-tight truncate">
-                                {errand.title}
-                              </h4>
+                              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                <h4 className="text-sm font-semibold text-foreground leading-tight truncate">
+                                  {errand.title}
+                                </h4>
+                                {locs.length > 1 && (
+                                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 gap-1 bg-primary/10 text-primary font-bold border-primary/20">
+                                    <Layers className="h-3 w-3" />
+                                    {locs.length} locations
+                                  </Badge>
+                                )}
+                              </div>
+
                               <div className="flex items-center gap-0.5 shrink-0">
                                 <Button
                                   variant="ghost"
@@ -301,14 +309,19 @@ export default function ErrandsPage() {
                               </p>
                             )}
 
-                            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground pt-1">
-                              <span className="flex items-center gap-1 font-medium text-primary">
-                                <MapPin className="h-3 w-3 shrink-0" />
-                                {distanceStr || `${errand.lat.toFixed(3)}, ${errand.lng.toFixed(3)}`}
-                              </span>
-                              <span className="rounded-md bg-secondary px-1.5 py-0.5 text-[10px] font-semibold text-secondary-foreground">
-                                {errand.radius_m || 100}m radius
-                              </span>
+                            {/* Location Labels & Distance Badges */}
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground pt-1">
+                              {locs.map((loc, idx) => (
+                                <span key={idx} className="flex items-center gap-1 font-medium text-foreground bg-muted/60 px-2 py-0.5 rounded-md border text-[10px]">
+                                  <MapPin className="h-3 w-3 text-primary shrink-0" />
+                                  {loc.label || `Pin #${idx + 1}`} ({loc.radius_m}m)
+                                </span>
+                              ))}
+                              {distanceStr && (
+                                <span className="text-[10px] text-muted-foreground font-semibold">
+                                  • Nearest ~{distanceStr}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -332,11 +345,10 @@ export default function ErrandsPage() {
                 {doneErrands.map((errand) => (
                   <Card
                     key={errand.id}
-                    className="opacity-70 bg-muted/20 border-border transition-all duration-300 animate-in fade-in"
+                    className="opacity-70 bg-muted/20 border-border transition-all duration-300"
                   >
                     <CardContent className="p-3.5">
                       <div className="flex items-start gap-3">
-                        {/* Toggle Checkbox */}
                         <button
                           onClick={() => handleToggleDone(errand.id, errand.is_done)}
                           className="mt-0.5 text-emerald-500 hover:text-muted-foreground transition-colors focus:outline-none shrink-0"
@@ -345,7 +357,6 @@ export default function ErrandsPage() {
                           <CheckCircle2 className="h-5 w-5 fill-emerald-500/20" />
                         </button>
 
-                        {/* Content */}
                         <div className="flex-1 min-w-0 space-y-1">
                           <div className="flex items-start justify-between gap-1.5">
                             <h4 className="text-sm font-semibold line-through text-muted-foreground leading-tight truncate">
@@ -377,7 +388,6 @@ export default function ErrandsPage() {
           </div>
         )}
 
-        {/* Modal for Add / Edit */}
         <ErrandModal
           isOpen={isModalOpen}
           onClose={() => {

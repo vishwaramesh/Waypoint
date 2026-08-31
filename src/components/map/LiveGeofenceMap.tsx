@@ -4,7 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Circle, Popup, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Errand } from '@/types/errand';
+import { Errand, ErrandLocation } from '@/types/errand';
+import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from '@/lib/constants/map';
 
 // User position marker icon (Blue dot)
 const userIcon = L.divIcon({
@@ -76,17 +77,22 @@ export function LiveGeofenceMap({
     );
   }
 
+  // Priority for map center:
+  // 1. Live/simulated user position
+  // 2. First active errand position
+  // 3. Fallback default: MICA Campus, Shela, Ahmedabad (22.99904369488419, 72.44197827249556)
+  const firstLoc = errands[0]?.locations?.[0];
   const defaultCenter: [number, number] = userLocation
     ? [userLocation.lat, userLocation.lng]
-    : errands.length > 0
-    ? [errands[0].lat, errands[0].lng]
-    : [37.7749, -122.4194];
+    : firstLoc
+    ? [firstLoc.lat, firstLoc.lng]
+    : [DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng];
 
   return (
     <div className="relative h-[360px] sm:h-[420px] w-full overflow-hidden rounded-2xl border border-border shadow-lg">
       <MapContainer
         center={defaultCenter}
-        zoom={14}
+        zoom={DEFAULT_MAP_ZOOM}
         scrollWheelZoom={true}
         style={{ height: '100%', width: '100%', zIndex: 10 }}
       >
@@ -112,49 +118,62 @@ export function LiveGeofenceMap({
           </Marker>
         )}
 
-        {/* Active Errands Markers and Geofence Circle Overlays */}
+        {/* Render ALL locations for all active errands */}
         {errands.map((errand) => {
           const isSelected = selectedErrandId === errand.id;
-          const pos: [number, number] = [errand.lat, errand.lng];
+          const locs: ErrandLocation[] = errand.locations && errand.locations.length > 0
+            ? errand.locations
+            : [
+                {
+                  lat: errand.lat ?? DEFAULT_MAP_CENTER.lat,
+                  lng: errand.lng ?? DEFAULT_MAP_CENTER.lng,
+                  radius_m: errand.radius_m ?? 100,
+                  label: null,
+                },
+              ];
 
-          return (
-            <React.Fragment key={errand.id}>
-              {/* Radius Circle Overlay */}
-              <Circle
-                center={pos}
-                radius={errand.radius_m || 100}
-                pathOptions={{
-                  color: isSelected ? '#ef4444' : '#3b82f6',
-                  fillColor: isSelected ? '#ef4444' : '#3b82f6',
-                  fillOpacity: isSelected ? 0.35 : 0.2,
-                  weight: isSelected ? 3 : 2,
-                }}
-              />
+          return locs.map((loc, lIdx) => {
+            const pos: [number, number] = [loc.lat, loc.lng];
+            return (
+              <React.Fragment key={`${errand.id}-${lIdx}`}>
+                {/* Circle overlay showing radius */}
+                <Circle
+                  center={pos}
+                  radius={loc.radius_m || 100}
+                  pathOptions={{
+                    color: isSelected ? '#ef4444' : '#3b82f6',
+                    fillColor: isSelected ? '#ef4444' : '#3b82f6',
+                    fillOpacity: isSelected ? 0.35 : 0.2,
+                    weight: isSelected ? 3 : 2,
+                  }}
+                />
 
-              {/* Errand Pin Marker */}
-              <Marker
-                position={pos}
-                icon={errandIcon}
-                eventHandlers={{
-                  click: () => onSelectErrand && onSelectErrand(errand),
-                }}
-              >
-                <Popup>
-                  <div className="text-xs space-y-1">
-                    <span className="font-bold text-foreground block">{errand.title}</span>
-                    {errand.note && <p className="text-[11px] text-muted-foreground">{errand.note}</p>}
-                    <span className="text-[10px] font-semibold text-primary block">
-                      Geofence Radius: {errand.radius_m}m
-                    </span>
-                  </div>
-                </Popup>
-              </Marker>
-            </React.Fragment>
-          );
+                {/* Marker pin */}
+                <Marker
+                  position={pos}
+                  icon={errandIcon}
+                  eventHandlers={{
+                    click: () => onSelectErrand && onSelectErrand(errand),
+                  }}
+                >
+                  <Popup>
+                    <div className="text-xs space-y-1">
+                      <span className="font-bold text-foreground block">
+                        {loc.label ? `${loc.label} (${errand.title})` : errand.title}
+                      </span>
+                      {errand.note && <p className="text-[11px] text-muted-foreground">{errand.note}</p>}
+                      <span className="text-[10px] font-semibold text-primary block">
+                        Geofence Radius: {loc.radius_m}m
+                      </span>
+                    </div>
+                  </Popup>
+                </Marker>
+              </React.Fragment>
+            );
+          });
         })}
       </MapContainer>
 
-      {/* Helper simulation banner */}
       {isSimulating && (
         <div className="absolute top-2 left-2 z-[400] rounded-xl bg-amber-500/90 text-amber-950 px-3 py-1.5 text-xs font-bold shadow-md backdrop-blur border border-amber-400 animate-pulse">
           🧪 Dev Simulation Active: Click anywhere on the map to set user position!

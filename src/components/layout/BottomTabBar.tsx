@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CheckSquare, Map } from 'lucide-react';
+import { CheckSquare, Compass, Map } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function BottomTabBar() {
@@ -15,6 +15,12 @@ export function BottomTabBar() {
       href: '/errands',
       icon: CheckSquare,
       active: pathname === '/errands' || pathname === '/',
+    },
+    {
+      name: 'Quests',
+      href: '/quests',
+      icon: Compass,
+      active: pathname === '/quests',
     },
     {
       name: 'Map',
