@@ -212,6 +212,11 @@ export default function MapPage() {
           // Outside every location for this errand — re-arm it so stepping
           // back in later fires a fresh reminder instead of staying silent.
           alertedSessionIds.current.delete(errand.id);
+          // Also auto-close the banner if it's still open for this errand
+          // (e.g. the user never tapped Mark done/Snooze/Ignore/X before
+          // walking away) — otherwise it just sits there unchanged, and
+          // re-entering later doesn't visibly "pop" since it never closed.
+          setTriggeredAlert((prev) => (prev && prev.errand.id === errand.id ? null : prev));
           continue;
         }
 
