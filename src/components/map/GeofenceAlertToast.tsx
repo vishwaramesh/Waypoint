@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { MapPin, CheckCircle2, Clock, X, Bell } from 'lucide-react';
+import { MapPin, CheckCircle2, Clock, X, Bell, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Errand, ErrandLocation } from '@/types/errand';
@@ -69,25 +69,37 @@ export function GeofenceAlertToast({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-2 pt-1">
+          <div className="space-y-1.5 pt-1">
             <Button
               size="sm"
               onClick={() => onMarkDone(errand.id)}
-              className="flex-1 h-9 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs gap-1.5 shadow-sm"
+              className="w-full h-9 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs gap-1.5 shadow-sm"
             >
               <CheckCircle2 className="h-4 w-4" />
               <span>Mark done</span>
             </Button>
 
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => onSnooze(errand.id)}
-              className="flex-1 h-9 font-semibold text-xs gap-1.5 border-slate-300 dark:border-slate-700"
-            >
-              <Clock className="h-4 w-4 text-amber-500" />
-              <span>Snooze 15 min</span>
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onSnooze(errand.id)}
+                className="flex-1 h-9 font-semibold text-xs gap-1.5 border-slate-300 dark:border-slate-700"
+              >
+                <Clock className="h-4 w-4 text-amber-500" />
+                <span>Snooze 15 min</span>
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onDismiss}
+                className="flex-1 h-9 font-semibold text-xs gap-1.5 border-slate-300 dark:border-slate-700 text-muted-foreground"
+              >
+                <EyeOff className="h-4 w-4" />
+                <span>Ignore</span>
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
