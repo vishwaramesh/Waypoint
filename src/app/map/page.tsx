@@ -73,15 +73,18 @@ export default function MapPage() {
 
   const currentPosition = isSimulating && simulatedLocation ? simulatedLocation : liveLocation;
 
-  // Load Active Errands and Active Quests
+  // Load Active Errands and Active Quests. These are fetched independently
+  // (not Promise.all'd together) so that one failing — e.g. a quest query
+  // erroring because a migration hasn't been run yet — can't silently wipe
+  // out the other's data too.
   const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      const [errandsData, questsData] = await Promise.all([
-        fetchUserErrands(user.id),
-        fetchUserQuests(user.id),
-      ]);
+      const errandsData = await fetchUserErrands(user.id).catch((err) => {
+        console.error('Failed to load errands for map geofencing:', err);
+        return [] as Errand[];
+      });
 
       const activeE = errandsData.filter((e) => !e.is_done);
       setActiveErrands(activeE);
@@ -89,14 +92,17 @@ export default function MapPage() {
         setSelectedErrand(activeE[0]);
       }
 
+      const questsData = await fetchUserQuests(user.id).catch((err) => {
+        console.error('Failed to load quests for map geofencing:', err);
+        return [] as Quest[];
+      });
+
       // Filter quests that still have uncompleted stops
       const activeQ = questsData.filter((q) => {
         const stops = q.stops || [];
         return stops.some((s) => !s.is_done);
       });
       setActiveQuests(activeQ);
-    } catch (err) {
-      console.error('Failed to load map geofence data:', err);
     } finally {
       setLoading(false);
     }
