@@ -66,7 +66,11 @@ export default function MapPage() {
     distance: number;
   } | null>(null);
 
-  // Session Alert & Snooze State Maps
+  // Tracks which errands currently have a "live" alert showing/shown for the
+  // geofence visit we're in right now. An id is added the moment we alert
+  // for it, and removed the instant the user steps back outside that
+  // errand's radius — so walking away and returning re-arms the reminder
+  // instead of it staying silenced for the rest of the session.
   const alertedSessionIds = useRef<Set<string>>(new Set());
   const alertedQuestStopIds = useRef<Set<string>>(new Set());
   const snoozeTimestamps = useRef<Map<string, number>>(new Map());
@@ -188,6 +192,8 @@ export default function MapPage() {
               },
             ];
 
+        // Find the (first) location this errand is currently inside, if any.
+        let matched: { loc: (typeof locs)[number]; distMeters: number } | null = null;
         for (const loc of locs) {
           const distMeters = haversineDistanceMeters(
             currentPosition.lat,
@@ -195,25 +201,33 @@ export default function MapPage() {
             loc.lat,
             loc.lng
           );
-
           const radius = loc.radius_m || 100;
-          const isInside = distMeters <= radius;
-
-          const snoozeUntil = snoozeTimestamps.current.get(errand.id);
-          const isSnoozed = Boolean(snoozeUntil && Date.now() < snoozeUntil);
-
-          if (isInside && !isSnoozed && !alertedSessionIds.current.has(errand.id)) {
-            alertedSessionIds.current.add(errand.id);
-            setTriggeredAlert({ errand, matchedLocation: loc, distance: distMeters });
-
-            const notifTitle = loc.label ? `Near ${loc.label}` : errand.title;
-            const notifBody = loc.label
-              ? `You're near ${loc.label} — pick up ${errand.title}`
-              : errand.note || `You're inside the target geofence for ${errand.title}`;
-
-            triggerBrowserNotification(notifTitle, notifBody);
+          if (distMeters <= radius) {
+            matched = { loc, distMeters };
             break;
           }
+        }
+
+        if (!matched) {
+          // Outside every location for this errand — re-arm it so stepping
+          // back in later fires a fresh reminder instead of staying silent.
+          alertedSessionIds.current.delete(errand.id);
+          continue;
+        }
+
+        const snoozeUntil = snoozeTimestamps.current.get(errand.id);
+        const isSnoozed = Boolean(snoozeUntil && Date.now() < snoozeUntil);
+
+        if (!isSnoozed && !alertedSessionIds.current.has(errand.id)) {
+          alertedSessionIds.current.add(errand.id);
+          setTriggeredAlert({ errand, matchedLocation: matched.loc, distance: matched.distMeters });
+
+          const notifTitle = matched.loc.label ? `Near ${matched.loc.label}` : errand.title;
+          const notifBody = matched.loc.label
+            ? `You're near ${matched.loc.label} — pick up ${errand.title}`
+            : errand.note || `You're inside the target geofence for ${errand.title}`;
+
+          triggerBrowserNotification(notifTitle, notifBody);
         }
       }
     }
@@ -308,6 +322,10 @@ export default function MapPage() {
   const handleSnooze = (errandId: string) => {
     const snoozeDurationMs = 15 * 60 * 1000;
     snoozeTimestamps.current.set(errandId, Date.now() + snoozeDurationMs);
+    // Clear the "already alerted" flag too, so once the 15 minutes are up,
+    // the reminder can fire again even if the user stayed inside the
+    // geofence the whole time rather than needing to step out and back in.
+    alertedSessionIds.current.delete(errandId);
     setTriggeredAlert(null);
     showToast('Errand Snoozed ⏰', 'Geofence alert snoozed for 15 minutes.', 'info');
   };
